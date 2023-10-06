@@ -63,7 +63,7 @@ void setup()
       "control extruder",
       2048,
       NULL,
-      2,
+      tskIDLE_PRIORITY,
       NULL);
 
   xTaskCreate(
@@ -71,7 +71,7 @@ void setup()
       "contro puller",
       2048,
       NULL,
-      2,
+      tskIDLE_PRIORITY,
       NULL);
 
   xTaskCreate(
@@ -79,7 +79,7 @@ void setup()
       "control winder",
       2048,
       NULL,
-      2,
+      tskIDLE_PRIORITY,
       NULL);
 
   xTaskCreate(
@@ -99,7 +99,7 @@ void control_extruder(void *pvParameters)
     {
       extruder_spinning();
     }
-    delay(200);
+    delay(1);
   }
 }
 
@@ -111,7 +111,7 @@ void control_puller(void *pvParameters)
     {
       puller_spinning();
     }
-    delay(200);
+    delay(1);
   }
 }
 
@@ -123,7 +123,7 @@ void control_winder(void *pvParameters)
     {
       winder_spinning();
     }
-    delay(200);
+    delay(1);
   }
 }
 
