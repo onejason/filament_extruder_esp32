@@ -5,6 +5,10 @@
 // TX2(17)----RX
 // RX2(16)----TX
 
+#include <AccelStepper.h>
+
+#define motorInterfaceType 1
+
 #define TJC Serial2
 #define FRAME_LENGTH 6
 
@@ -30,17 +34,25 @@ bool puller_toggle = 0;
 bool winder_toggle = 0;
 bool fan_toggle = 0;
 
+AccelStepper extruderStepper(motorInterfaceType, EXTRUDER_STEP, EXTRUDER_DIR);
+AccelStepper pullerStepper(motorInterfaceType, PULLER_STEP, PULLER_DIR);
+AccelStepper winderStepper(motorInterfaceType, WINDER_STEP, WINDER_DIR);
+
 void setup()
 {
-  pinMode(EXTRUDER_STEP, OUTPUT);
-  pinMode(EXTRUDER_DIR, OUTPUT);
-  pinMode(PULLER_STEP, OUTPUT);
-  pinMode(PULLER_DIR, OUTPUT);
-  pinMode(WINDER_STEP, OUTPUT);
-  pinMode(WINDER_DIR, OUTPUT);
+  extruderStepper.setMaxSpeed(1000);
+  extruderStepper.moveTo(2000);
+
+  pullerStepper.setMaxSpeed(1000);
+  pullerStepper.moveTo(2000);
+
+  winderStepper.setMaxSpeed(1000);
+  winderStepper.moveTo(2000);
+
   pinMode(HEATER_PIN, OUTPUT);
   pinMode(FAN_PIN, OUTPUT);
 
+  // Serial1 for debug
   Serial.begin(115200);
 
   // 初始化串口
@@ -57,148 +69,77 @@ void setup()
 
   TJC.print("page main\xff\xff\xff"); // 发送命令让屏幕跳转到main页面
   nowtime = millis();                 // 获取当前已经运行的时间
-
-  xTaskCreate(
-      control_extruder,
-      "control extruder",
-      2048,
-      NULL,
-      tskIDLE_PRIORITY,
-      NULL);
-
-  xTaskCreate(
-      control_puller,
-      "contro puller",
-      2048,
-      NULL,
-      tskIDLE_PRIORITY,
-      NULL);
-
-  xTaskCreate(
-      control_winder,
-      "control winder",
-      2048,
-      NULL,
-      tskIDLE_PRIORITY,
-      NULL);
-
-  xTaskCreate(
-      control_lcd,
-      "control lcd",
-      2048,
-      NULL,
-      2,
-      NULL);
-}
-
-void control_extruder(void *pvParameters)
-{
-  for (;;)
-  {
-    if (extruder_toggle)
-    {
-      extruder_spinning();
-    }
-    delay(1);
-  }
-}
-
-void control_puller(void *pvParameters)
-{
-  for (;;)
-  {
-    if (puller_toggle)
-    {
-      puller_spinning();
-    }
-    delay(1);
-  }
-}
-
-void control_winder(void *pvParameters)
-{
-  for (;;)
-  {
-    if (winder_toggle)
-    {
-      winder_spinning();
-    }
-    delay(1);
-  }
 }
 
 void loop()
 {
+  digitalWrite(FAN_PIN, fan_toggle);
+  digitalWrite(HEATER_PIN, heater_toggle);
+  control_steppers();
+  control_lcd();
 }
 
-void control_lcd(void *pvParameters)
+void control_lcd()
 {
-  for (;;)
+  char str[100];
+  if (millis() >= nowtime + 1000)
   {
-    digitalWrite(FAN_PIN, fan_toggle);
-    digitalWrite(HEATER_PIN, heater_toggle);
+    nowtime = millis(); // 获取当前已经运行的时间
 
-    char str[100];
-    if (millis() >= nowtime + 1000)
+    // 用sprintf来格式化字符串，给num_duration(时长)的val属性赋值
+    sprintf(str, "num_duration.val=%d\xff\xff\xff", duration);
+    TJC.print(str);
+    duration++;
+
+    // 用sprintf来格式化字符串，给txt_status的txt属性赋值
+    sprintf(str, "txt_status.txt=\"status messages\"\xff\xff\xff");
+    TJC.print(str);
+
+    sprintf(str, "txt_temp.txt=\"30 C\"\xff\xff\xff");
+    TJC.print(str);
+
+    sprintf(str, "txt_diameter.txt=\"1.8\"\xff\xff\xff");
+    TJC.print(str);
+
+    sprintf(str, "txt_length.txt=\"0 mm\"\xff\xff\xff");
+    TJC.print(str);
+  }
+
+  // 串口数据格式：
+  // 串口数据帧长度：6字节
+  // 帧头      button编号  button状态    帧尾
+  // 0x55      1字节      1字节         0xffffff
+  // 例子1：上位机代码  printh 55 01 00 ff ff ff  含义：1号按钮关闭
+  // 例子2：上位机代码  printh 55 04 01 ff ff ff  含义：4号按钮打开
+  // 例子3：上位机代码  printh 55 00 01 ff ff ff  含义：0号按钮打开
+  // 例子4：上位机代码  printh 55 04 00 ff ff ff  含义：4号按钮关闭
+
+  // 当串口缓冲区大于等于6时
+  while (TJC.available() >= FRAME_LENGTH)
+  {
+    unsigned char ubuffer[FRAME_LENGTH];
+    // 从串口缓冲读取1个字节但不删除
+    unsigned char frame_header = TJC.peek();
+    // 当获取的数据是包头(0x55)时
+    if (frame_header == 0x55)
     {
-      nowtime = millis(); // 获取当前已经运行的时间
-
-      // 用sprintf来格式化字符串，给num_duration(时长)的val属性赋值
-      sprintf(str, "num_duration.val=%d\xff\xff\xff", duration);
-      TJC.print(str);
-      duration++;
-
-      // 用sprintf来格式化字符串，给txt_status的txt属性赋值
-      sprintf(str, "txt_status.txt=\"status messages\"\xff\xff\xff");
-      TJC.print(str);
-
-      sprintf(str, "txt_temp.txt=\"30 C\"\xff\xff\xff");
-      TJC.print(str);
-
-      sprintf(str, "txt_diameter.txt=\"1.8\"\xff\xff\xff");
-      TJC.print(str);
-
-      sprintf(str, "txt_length.txt=\"0 mm\"\xff\xff\xff");
-      TJC.print(str);
-    }
-
-    // 串口数据格式：
-    // 串口数据帧长度：6字节
-    // 帧头      button编号  button状态    帧尾
-    // 0x55      1字节      1字节         0xffffff
-    // 例子1：上位机代码  printh 55 01 00 ff ff ff  含义：1号按钮关闭
-    // 例子2：上位机代码  printh 55 04 01 ff ff ff  含义：4号按钮打开
-    // 例子3：上位机代码  printh 55 00 01 ff ff ff  含义：0号按钮打开
-    // 例子4：上位机代码  printh 55 04 00 ff ff ff  含义：4号按钮关闭
-
-    // 当串口缓冲区大于等于6时
-    while (TJC.available() >= FRAME_LENGTH)
-    {
-      unsigned char ubuffer[FRAME_LENGTH];
-      // 从串口缓冲读取1个字节但不删除
-      unsigned char frame_header = TJC.peek();
-      // 当获取的数据是包头(0x55)时
-      if (frame_header == 0x55)
+      // 从串口缓冲区读取6字节
+      TJC.readBytes(ubuffer, FRAME_LENGTH);
+      if (ubuffer[3] == 0xff && ubuffer[4] == 0xff && ubuffer[5] == 0xff)
       {
-        // 从串口缓冲区读取6字节
-        TJC.readBytes(ubuffer, FRAME_LENGTH);
-        if (ubuffer[3] == 0xff && ubuffer[4] == 0xff && ubuffer[5] == 0xff)
-        {
-          sprintf(str, "msg.txt=\"button %d is %s\"\xff\xff\xff", ubuffer[1], ubuffer[2] ? "on" : "off");
-          TJC.print(str);
-          control_toggles(ubuffer[1], ubuffer[2]);
-        }
-      }
-      else
-      {
-        TJC.read(); // 从串口缓冲读取1个字节并删除
+        sprintf(str, "msg.txt=\"button %d is %s\"\xff\xff\xff", ubuffer[1], ubuffer[2] ? "on" : "off");
+        TJC.print(str);
+        decode_toggles(ubuffer[1], ubuffer[2]);
       }
     }
-    delay(200);
+    else
+    {
+      TJC.read(); // 从串口缓冲读取1个字节并删除
+    }
   }
 }
 
-void control_toggles(unsigned char button_id, unsigned char toggle)
+void decode_toggles(unsigned char button_id, unsigned char toggle)
 {
   if (button_id == 0)
   {
@@ -222,44 +163,30 @@ void control_toggles(unsigned char button_id, unsigned char toggle)
   }
 }
 
-void extruder_spinning()
+void control_steppers()
 {
-  digitalWrite(EXTRUDER_DIR, HIGH);
-  // Serial.println("Spinning extruder...");
+  extruderStepper.setSpeed(200);
+  pullerStepper.setSpeed(100);
+  winderStepper.setSpeed(50);
 
-  for (int i = 0; i < steps_per_rev; i++)
+  if (extruder_toggle)
   {
-    digitalWrite(EXTRUDER_STEP, HIGH);
-    delayMicroseconds(2000);
-    digitalWrite(EXTRUDER_STEP, LOW);
-    delayMicroseconds(2000);
+    if (extruderStepper.distanceToGo() == 0)
+      extruderStepper.moveTo(extruderStepper.currentPosition() + 2000);
+    extruderStepper.runSpeed();
   }
-}
 
-void puller_spinning()
-{
-  digitalWrite(PULLER_DIR, HIGH);
-  // Serial.println("Spinning puller...");
-
-  for (int i = 0; i < steps_per_rev; i++)
+  if (puller_toggle)
   {
-    digitalWrite(PULLER_STEP, HIGH);
-    delayMicroseconds(2000);
-    digitalWrite(PULLER_STEP, LOW);
-    delayMicroseconds(2000);
+    if (pullerStepper.distanceToGo() == 0)
+      pullerStepper.moveTo(pullerStepper.currentPosition() + 2000);
+    pullerStepper.runSpeed();
   }
-}
 
-void winder_spinning()
-{
-  digitalWrite(WINDER_DIR, HIGH);
-  // Serial.println("Spinning winder...");
-
-  for (int i = 0; i < steps_per_rev; i++)
+  if (winder_toggle)
   {
-    digitalWrite(WINDER_STEP, HIGH);
-    delayMicroseconds(2000);
-    digitalWrite(WINDER_STEP, LOW);
-    delayMicroseconds(2000);
+    if (winderStepper.distanceToGo() == 0)
+      winderStepper.moveTo(winderStepper.currentPosition() + 2000);
+    winderStepper.runSpeed();
   }
 }
