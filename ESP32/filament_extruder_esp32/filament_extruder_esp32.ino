@@ -6,6 +6,7 @@
 // RX2(16)----TX
 
 #include <AccelStepper.h>
+#include <thermistor.h>
 
 #define motorInterfaceType 1
 
@@ -24,6 +25,9 @@
 #define HEATER_PIN 19
 #define FAN_PIN 18
 
+// wiring ESP32 and thermistor
+#define THERMISTOR_PIN 32
+
 const int steps_per_rev = 200;
 int duration;
 unsigned long nowtime;
@@ -37,6 +41,10 @@ bool fan_toggle = 0;
 AccelStepper extruderStepper(motorInterfaceType, EXTRUDER_STEP, EXTRUDER_DIR);
 AccelStepper pullerStepper(motorInterfaceType, PULLER_STEP, PULLER_DIR);
 AccelStepper winderStepper(motorInterfaceType, WINDER_STEP, WINDER_DIR);
+
+// Thermistor model reference
+// https://github.com/miguel5612/ThermistorLibrary/blob/master/src/Configuration.h
+thermistor therm1(THERMISTOR_PIN, 4);
 
 void setup()
 {
@@ -52,7 +60,7 @@ void setup()
   pinMode(HEATER_PIN, OUTPUT);
   pinMode(FAN_PIN, OUTPUT);
 
-  // Serial1 for debug
+  // Serial0 for debug
   Serial.begin(115200);
 
   // 初始化串口
@@ -86,16 +94,23 @@ void control_lcd()
   {
     nowtime = millis(); // 获取当前已经运行的时间
 
+    // read temperature from thermistor
+    int analogValue = analogRead(THERMISTOR_PIN);
+    Serial.printf("ADC analog value = %d\n", analogValue);
+
+    double temp = therm1.analog2temp();
+    Serial.print("Temperature: ");
+    Serial.println((String)temp);
+
+    sprintf(str, "txt_temp.txt=\"%f\"\xff\xff\xff", temp);
+    TJC.print(str);
+
     // 用sprintf来格式化字符串，给num_duration(时长)的val属性赋值
     sprintf(str, "num_duration.val=%d\xff\xff\xff", duration);
     TJC.print(str);
     duration++;
 
-    // 用sprintf来格式化字符串，给txt_status的txt属性赋值
     sprintf(str, "txt_status.txt=\"status messages\"\xff\xff\xff");
-    TJC.print(str);
-
-    sprintf(str, "txt_temp.txt=\"30 C\"\xff\xff\xff");
     TJC.print(str);
 
     sprintf(str, "txt_diameter.txt=\"1.8\"\xff\xff\xff");
