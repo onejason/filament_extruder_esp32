@@ -31,6 +31,8 @@
 const int steps_per_rev = 200;
 int duration;
 unsigned long nowtime;
+int length = 0;
+float diameter = 1.8;
 
 bool heater_toggle = 0;
 bool extruder_toggle = 0;
@@ -102,10 +104,10 @@ void control_lcd()
     Serial.print("Temperature: ");
     Serial.println((String)temp);
 
-    sprintf(str, "txt_temp.txt=\"%f\"\xff\xff\xff", temp);
+    // update UI
+    sprintf(str, "txt_temp.txt=\"%.1f\"\xff\xff\xff", temp);
     TJC.print(str);
 
-    // 用sprintf来格式化字符串，给num_duration(时长)的val属性赋值
     sprintf(str, "num_duration.val=%d\xff\xff\xff", duration);
     TJC.print(str);
     duration++;
@@ -113,10 +115,17 @@ void control_lcd()
     sprintf(str, "txt_status.txt=\"status messages\"\xff\xff\xff");
     TJC.print(str);
 
-    sprintf(str, "txt_diameter.txt=\"1.8\"\xff\xff\xff");
+    sprintf(str, "txt_diameter.txt=\"%.1f\"\xff\xff\xff", diameter);
     TJC.print(str);
 
-    sprintf(str, "txt_length.txt=\"0 mm\"\xff\xff\xff");
+    length += 2;
+    sprintf(str, "txt_length.txt=\"%d mm\"\xff\xff\xff", length);
+    TJC.print(str);
+
+    sprintf(str, "txt_preheat.txt=\"done\"\xff\xff\xff");
+    TJC.print(str);
+
+    sprintf(str, "temp_threshold.txt=\"110 C\"\xff\xff\xff");
     TJC.print(str);
   }
 
@@ -156,25 +165,41 @@ void control_lcd()
 
 void decode_toggles(unsigned char button_id, unsigned char toggle)
 {
-  if (button_id == 0)
+  if (button_id == 0x0)
   {
     heater_toggle = toggle ? 1 : 0;
   }
-  if (button_id == 1)
+  if (button_id == 0x1)
   {
     extruder_toggle = toggle ? 1 : 0;
   }
-  if (button_id == 2)
+  if (button_id == 0x2)
   {
     puller_toggle = toggle ? 1 : 0;
   }
-  if (button_id == 3)
+  if (button_id == 0x3)
   {
     winder_toggle = toggle ? 1 : 0;
   }
-  if (button_id == 4)
+  if (button_id == 0x4)
   {
     fan_toggle = toggle ? 1 : 0;
+  }
+  if (button_id == 0x10)
+  {
+    heater_toggle = 1;
+    extruder_toggle = 1;
+    puller_toggle = 1;
+    winder_toggle = 1;
+    fan_toggle = 1;
+  }
+  if (button_id == 0x11)
+  {
+    heater_toggle = 0;
+    extruder_toggle = 0;
+    puller_toggle = 0;
+    winder_toggle = 0;
+    fan_toggle = 0;
   }
 }
 
