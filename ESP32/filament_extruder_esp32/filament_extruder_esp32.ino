@@ -5,25 +5,10 @@
 // TX2(17)----RX
 // RX2(16)----TX
 
-#include <AccelStepper.h>
 #include <thermistor.h>
-
-#define motorInterfaceType 1
 
 #define TJC Serial2
 #define FRAME_LENGTH 6
-
-// wiring ESP32 and A4988
-#define EXTRUDER_STEP 12
-#define EXTRUDER_DIR 14
-#define PULLER_STEP 27
-#define PULLER_DIR 26
-#define WINDER_STEP 25
-#define WINDER_DIR 33
-
-// wiring ESP32 and SSR
-#define HEATER_PIN 19
-#define FAN_PIN 18
 
 // wiring ESP32 and thermistor
 #define THERMISTOR_PIN 32
@@ -40,27 +25,118 @@ bool puller_toggle = 0;
 bool winder_toggle = 0;
 bool fan_toggle = 0;
 
-AccelStepper extruderStepper(motorInterfaceType, EXTRUDER_STEP, EXTRUDER_DIR);
-AccelStepper pullerStepper(motorInterfaceType, PULLER_STEP, PULLER_DIR);
-AccelStepper winderStepper(motorInterfaceType, WINDER_STEP, WINDER_DIR);
-
 // Thermistor model reference
 // https://github.com/miguel5612/ThermistorLibrary/blob/master/src/Configuration.h
 thermistor therm1(THERMISTOR_PIN, 4);
 
+// wiring ESP32 and 74HC595
+#define SHIFT_REGISTER_DATAPIN 19
+#define SHIFT_REGISTER_LATCHPIN 18
+#define SHIFT_REGISTER_CLOCKPIN 5
+
+// wiring 74HC595 and four A4988
+#define MOTOR_ONE_PUL 0
+#define MOTOR_ONE_DIR 1
+#define MOTOR_TWO_PUL 2
+#define MOTOR_TWO_DIR 3
+#define MOTOR_THR_PUL 4
+#define MOTOR_THR_DIR 5
+#define MOTOR_FOR_PUL 6
+#define MOTOR_FOR_DIR 7
+
+// wiring ESP32 and SSR
+#define HEATER_PIN 1
+#define FAN_PIN 2
+
+// Variable that stores what is sent to the 74HC595 Shift Register
+byte motorOutput;
+
+class stepperMotor
+{
+public:
+  void stop(void)
+  {
+    enable = 0;
+  }
+
+  void start(void)
+  {
+    enable = 1;
+  }
+
+  unsigned long steps(void)
+  {
+    return stepCount;
+  }
+
+  void init(int _pulsePin, int _dirPin, unsigned long _delayTime, bool _direction)
+  {
+    pulsePin = _pulsePin;
+    dirPin = _dirPin;
+    delayTime = _delayTime;
+    direction = _direction;
+    togglePulse = LOW;
+    enable = 0;
+    changeDirection(direction);
+  }
+
+  void control(void)
+  {
+    currentTime = micros();
+    if (enable == 1)
+    {
+      if ((currentTime - deltaTime) > delayTime)
+      {
+        togglePulse = togglePulse == LOW ? HIGH : LOW;
+        pulseCount++;
+        if (pulseCount % 2 == 0)
+        {
+          stepCount++;
+        }
+        bitWrite(motorOutput, pulsePin, togglePulse);
+        deltaTime = currentTime;
+      }
+    }
+  }
+
+  void changeDirection(bool _direction)
+  {
+    direction = _direction;
+    bitWrite(motorOutput, dirPin, direction);
+  }
+
+  void changeSpeed(unsigned long _speed)
+  {
+    delayTime = _speed;
+  }
+
+private:
+  unsigned long delayTime, currentTime;
+  unsigned long deltaTime = 0;
+  unsigned long pulseCount = 0;
+  unsigned long stepCount = 0;
+  int pulsePin, dirPin;
+  bool direction, togglePulse, enable;
+};
+
+stepperMotor stepperOne, stepperTwo, stepperThree, stepperFour;
+
 void setup()
 {
-  extruderStepper.setMaxSpeed(1000);
-  extruderStepper.moveTo(2000);
+  pinMode(SHIFT_REGISTER_DATAPIN, OUTPUT);
+  pinMode(SHIFT_REGISTER_LATCHPIN, OUTPUT);
+  pinMode(SHIFT_REGISTER_CLOCKPIN, OUTPUT);
+  digitalWrite(SHIFT_REGISTER_LATCHPIN, HIGH);
 
-  pullerStepper.setMaxSpeed(1000);
-  pullerStepper.moveTo(2000);
+  stepperOne.init(MOTOR_ONE_PUL, MOTOR_ONE_DIR, 500, LOW);
+  stepperTwo.init(MOTOR_TWO_PUL, MOTOR_TWO_DIR, 600, LOW);
+  stepperThree.init(MOTOR_THR_PUL, MOTOR_THR_DIR, 1000, LOW);
+  stepperFour.init(MOTOR_FOR_PUL, MOTOR_FOR_DIR, 2000, LOW);
 
-  winderStepper.setMaxSpeed(1000);
-  winderStepper.moveTo(2000);
-
-  pinMode(HEATER_PIN, OUTPUT);
-  pinMode(FAN_PIN, OUTPUT);
+  stepperOne.start();
+  stepperTwo.start();
+  stepperThree.start();
+  stepperFour.start();
 
   // Serial0 for debug
   Serial.begin(115200);
@@ -85,6 +161,7 @@ void loop()
 {
   digitalWrite(FAN_PIN, fan_toggle);
   digitalWrite(HEATER_PIN, heater_toggle);
+
   control_steppers();
   control_lcd();
 }
@@ -205,28 +282,31 @@ void decode_toggles(unsigned char button_id, unsigned char toggle)
 
 void control_steppers()
 {
-  extruderStepper.setSpeed(200);
-  pullerStepper.setSpeed(100);
-  winderStepper.setSpeed(50);
+  stepperOne.changeSpeed(1000);
+  stepperTwo.changeSpeed(2000);
+  stepperThree.changeSpeed(3000);
+  stepperFour.changeSpeed(4000);
 
   if (extruder_toggle)
   {
-    if (extruderStepper.distanceToGo() == 0)
-      extruderStepper.moveTo(extruderStepper.currentPosition() + 2000);
-    extruderStepper.runSpeed();
+    stepperOne.control();
   }
 
   if (puller_toggle)
   {
-    if (pullerStepper.distanceToGo() == 0)
-      pullerStepper.moveTo(pullerStepper.currentPosition() + 2000);
-    pullerStepper.runSpeed();
+    stepperThree.control();
   }
 
   if (winder_toggle)
   {
-    if (winderStepper.distanceToGo() == 0)
-      winderStepper.moveTo(winderStepper.currentPosition() + 2000);
-    winderStepper.runSpeed();
+    stepperFour.control();
   }
+
+  // stepperTwo is not wired now
+  // stepperTwo.control();
+
+  // This updates the Shift Register Values in each loop
+  digitalWrite(SHIFT_REGISTER_LATCHPIN, LOW);
+  shiftOut(SHIFT_REGISTER_DATAPIN, SHIFT_REGISTER_CLOCKPIN, MSBFIRST, motorOutput);
+  digitalWrite(SHIFT_REGISTER_LATCHPIN, HIGH);
 }
