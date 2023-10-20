@@ -13,7 +13,6 @@
 // wiring ESP32 and thermistor
 #define THERMISTOR_PIN 32
 
-const int steps_per_rev = 200;
 int duration;
 unsigned long nowtime;
 int length = 0;
@@ -24,6 +23,15 @@ bool extruder_toggle = 0;
 bool puller_toggle = 0;
 bool winder_toggle = 0;
 bool fan_toggle = 0;
+
+int speed1 = 1000;
+bool direction1 = 0;
+int speed2 = 1000;
+bool direction2 = 0;
+int speed3 = 1000;
+bool direction3 = 0;
+int speed4 = 1000;
+bool direction4 = 0;
 
 // Thermistor model reference
 // https://github.com/miguel5612/ThermistorLibrary/blob/master/src/Configuration.h
@@ -85,7 +93,7 @@ public:
     currentTime = micros();
     if (enable == 1)
     {
-      if ((currentTime - deltaTime) > delayTime)
+      if ((currentTime - lastTime) > delayTime)
       {
         togglePulse = togglePulse == LOW ? HIGH : LOW;
         pulseCount++;
@@ -94,7 +102,7 @@ public:
           stepCount++;
         }
         bitWrite(motorOutput, pulsePin, togglePulse);
-        deltaTime = currentTime;
+        lastTime = currentTime;
       }
     }
   }
@@ -112,7 +120,7 @@ public:
 
 private:
   unsigned long delayTime, currentTime;
-  unsigned long deltaTime = 0;
+  unsigned long lastTime = 0;
   unsigned long pulseCount = 0;
   unsigned long stepCount = 0;
   int pulsePin, dirPin;
@@ -206,15 +214,6 @@ void control_lcd()
     TJC.print(str);
   }
 
-  // 串口数据格式：
-  // 串口数据帧长度：6字节
-  // 帧头      button编号  button状态    帧尾
-  // 0x55      1字节      1字节         0xffffff
-  // 例子1：上位机代码  printh 55 01 00 ff ff ff  含义：1号按钮关闭
-  // 例子2：上位机代码  printh 55 04 01 ff ff ff  含义：4号按钮打开
-  // 例子3：上位机代码  printh 55 00 01 ff ff ff  含义：0号按钮打开
-  // 例子4：上位机代码  printh 55 04 00 ff ff ff  含义：4号按钮关闭
-
   // 当串口缓冲区大于等于6时
   while (TJC.available() >= FRAME_LENGTH)
   {
@@ -230,7 +229,7 @@ void control_lcd()
       {
         sprintf(str, "msg.txt=\"button %d is %s\"\xff\xff\xff", ubuffer[1], ubuffer[2] ? "on" : "off");
         TJC.print(str);
-        decode_toggles(ubuffer[1], ubuffer[2]);
+        decode_operations(ubuffer[1], ubuffer[2]);
       }
     }
     else
@@ -240,29 +239,48 @@ void control_lcd()
   }
 }
 
-void decode_toggles(unsigned char button_id, unsigned char toggle)
+// 串口数据格式：
+// 串口数据帧长度：6字节
+// 帧头      lcd_obj_id   lcd_obj_parameter    帧尾
+// 0x55      1字节        1字节                0xffffff
+// Main
+// 上位机代码  printh 55 10 01 ff ff ff  含义：start按钮打开
+// 上位机代码  printh 55 11 01 ff ff ff  含义：stop按钮打开
+// Debug
+// 上位机代码  printh 55 00 01 ff ff ff  含义：heater按钮打开
+// 上位机代码  printh 55 00 00 ff ff ff  含义：heater按钮关闭
+// 上位机代码  printh 55 04 01 ff ff ff  含义：fan按钮打开
+// 上位机代码  printh 55 04 00 ff ff ff  含义：fan按钮关闭
+// debug_extruder
+// 上位机代码  printh 55 20 01 ff ff ff  含义：extruder按钮打开
+// 上位机代码  printh 55 20 00 ff ff ff  含义：extruder按钮关闭
+// 上位机代码  printh 55 21 01 ff ff ff  含义：direction按钮打开
+// 上位机代码  printh 55 21 00 ff ff ff  含义：direction按钮关闭
+// 上位机代码  printh 55 22 01 ff ff ff  含义：滑块弹起时的val
+
+void decode_operations(unsigned char lcd_obj_id, unsigned char lcd_obj_parameter)
 {
-  if (button_id == 0x0)
+  if (lcd_obj_id == 0x0)
   {
-    heater_toggle = toggle ? 1 : 0;
+    heater_toggle = lcd_obj_parameter ? 1 : 0;
   }
-  if (button_id == 0x1)
+  if (lcd_obj_id == 0x1)
   {
-    extruder_toggle = toggle ? 1 : 0;
+    extruder_toggle = lcd_obj_parameter ? 1 : 0;
   }
-  if (button_id == 0x2)
+  if (lcd_obj_id == 0x2)
   {
-    puller_toggle = toggle ? 1 : 0;
+    puller_toggle = lcd_obj_parameter ? 1 : 0;
   }
-  if (button_id == 0x3)
+  if (lcd_obj_id == 0x3)
   {
-    winder_toggle = toggle ? 1 : 0;
+    winder_toggle = lcd_obj_parameter ? 1 : 0;
   }
-  if (button_id == 0x4)
+  if (lcd_obj_id == 0x4)
   {
-    fan_toggle = toggle ? 1 : 0;
+    fan_toggle = lcd_obj_parameter ? 1 : 0;
   }
-  if (button_id == 0x10)
+  if (lcd_obj_id == 0x10)
   {
     heater_toggle = 1;
     extruder_toggle = 1;
@@ -270,7 +288,7 @@ void decode_toggles(unsigned char button_id, unsigned char toggle)
     winder_toggle = 1;
     fan_toggle = 1;
   }
-  if (button_id == 0x11)
+  if (lcd_obj_id == 0x11)
   {
     heater_toggle = 0;
     extruder_toggle = 0;
@@ -278,14 +296,30 @@ void decode_toggles(unsigned char button_id, unsigned char toggle)
     winder_toggle = 0;
     fan_toggle = 0;
   }
+  if (lcd_obj_id == 0x20)
+  {
+    extruder_toggle = lcd_obj_parameter ? 1 : 0;
+  }
+  if (lcd_obj_id == 0x21)
+  {
+    direction1 = lcd_obj_parameter ? 1 : 0;
+  }
+  if (lcd_obj_id == 0x22)
+  {
+    speed1 = (int)lcd_obj_parameter;
+  }
 }
 
 void control_steppers()
 {
-  stepperOne.changeSpeed(1000);
-  stepperTwo.changeSpeed(2000);
-  stepperThree.changeSpeed(3000);
-  stepperFour.changeSpeed(4000);
+  stepperOne.changeSpeed(speed1);
+  stepperTwo.changeSpeed(speed2);
+  stepperThree.changeSpeed(speed3);
+  stepperFour.changeSpeed(speed4);
+  stepperOne.changeDirection(direction1);
+  stepperTwo.changeDirection(direction2);
+  stepperThree.changeDirection(direction3);
+  stepperFour.changeDirection(direction4);
 
   if (extruder_toggle)
   {
@@ -302,8 +336,7 @@ void control_steppers()
     stepperFour.control();
   }
 
-  // stepperTwo is not wired now
-  // stepperTwo.control();
+  stepperTwo.control();
 
   // This updates the Shift Register Values in each loop
   digitalWrite(SHIFT_REGISTER_LATCHPIN, LOW);
