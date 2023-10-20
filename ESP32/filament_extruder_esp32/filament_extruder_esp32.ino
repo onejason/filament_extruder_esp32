@@ -8,7 +8,7 @@
 #include <thermistor.h>
 
 #define TJC Serial2
-#define FRAME_LENGTH 6
+#define FRAME_LENGTH 7
 
 // wiring ESP32 and thermistor
 #define THERMISTOR_PIN 32
@@ -22,16 +22,18 @@ bool heater_toggle = 0;
 bool extruder_toggle = 0;
 bool puller_toggle = 0;
 bool winder_toggle = 0;
+bool stepper4_toggle = 0;
+
 bool fan_toggle = 0;
 
-int speed1 = 1000;
-bool direction1 = 0;
-int speed2 = 1000;
-bool direction2 = 0;
-int speed3 = 1000;
-bool direction3 = 0;
-int speed4 = 1000;
-bool direction4 = 0;
+int speed_extruder = 1000;
+bool direction_extruder = 0;
+int speed_puller = 1000;
+bool direction_puller = 0;
+int speed_winder = 1000;
+bool direction_winder = 0;
+int speed_stepper4 = 1000;
+bool direction_stepper4 = 0;
 
 // Thermistor model reference
 // https://github.com/miguel5612/ThermistorLibrary/blob/master/src/Configuration.h
@@ -43,18 +45,18 @@ thermistor therm1(THERMISTOR_PIN, 4);
 #define SHIFT_REGISTER_CLOCKPIN 5
 
 // wiring 74HC595 and four A4988
-#define MOTOR_ONE_PUL 0
-#define MOTOR_ONE_DIR 1
-#define MOTOR_TWO_PUL 2
-#define MOTOR_TWO_DIR 3
-#define MOTOR_THR_PUL 4
-#define MOTOR_THR_DIR 5
-#define MOTOR_FOR_PUL 6
-#define MOTOR_FOR_DIR 7
+#define EXTRUDER_PUL 0
+#define EXTRUDER_DIR 1
+#define PULLER_PUL 4
+#define PULLER_DIR 5
+#define WINDER_PUL 6
+#define WINDER_DIR 7
+#define STEPPER4_PUL 2
+#define STEPPER4_DIR 3
 
 // wiring ESP32 and SSR
-#define HEATER_PIN 1
-#define FAN_PIN 2
+#define HEATER_PIN 26
+#define FAN_PIN 27
 
 // Variable that stores what is sent to the 74HC595 Shift Register
 byte motorOutput;
@@ -127,24 +129,27 @@ private:
   bool direction, togglePulse, enable;
 };
 
-stepperMotor stepperOne, stepperTwo, stepperThree, stepperFour;
+stepperMotor extruder, puller, winder, stepper4;
 
 void setup()
 {
+  pinMode(HEATER_PIN, OUTPUT);
+  pinMode(FAN_PIN, OUTPUT);
+  
   pinMode(SHIFT_REGISTER_DATAPIN, OUTPUT);
   pinMode(SHIFT_REGISTER_LATCHPIN, OUTPUT);
   pinMode(SHIFT_REGISTER_CLOCKPIN, OUTPUT);
   digitalWrite(SHIFT_REGISTER_LATCHPIN, HIGH);
 
-  stepperOne.init(MOTOR_ONE_PUL, MOTOR_ONE_DIR, 500, LOW);
-  stepperTwo.init(MOTOR_TWO_PUL, MOTOR_TWO_DIR, 600, LOW);
-  stepperThree.init(MOTOR_THR_PUL, MOTOR_THR_DIR, 1000, LOW);
-  stepperFour.init(MOTOR_FOR_PUL, MOTOR_FOR_DIR, 2000, LOW);
+  extruder.init(EXTRUDER_PUL, EXTRUDER_DIR, 500, LOW);
+  puller.init(PULLER_PUL, PULLER_DIR, 600, LOW);
+  winder.init(WINDER_PUL, WINDER_DIR, 1000, LOW);
+  stepper4.init(STEPPER4_PUL, STEPPER4_DIR, 2000, LOW);
 
-  stepperOne.start();
-  stepperTwo.start();
-  stepperThree.start();
-  stepperFour.start();
+  extruder.start();
+  puller.start();
+  winder.start();
+  stepper4.start();
 
   // Serial0 for debug
   Serial.begin(115200);
@@ -169,7 +174,6 @@ void loop()
 {
   digitalWrite(FAN_PIN, fan_toggle);
   digitalWrite(HEATER_PIN, heater_toggle);
-
   control_steppers();
   control_lcd();
 }
@@ -183,11 +187,11 @@ void control_lcd()
 
     // read temperature from thermistor
     int analogValue = analogRead(THERMISTOR_PIN);
-    Serial.printf("ADC analog value = %d\n", analogValue);
+    // Serial.printf("ADC analog value = %d\n", analogValue);
 
     double temp = therm1.analog2temp();
-    Serial.print("Temperature: ");
-    Serial.println((String)temp);
+    // Serial.print("Temperature: ");
+    // Serial.println((String)temp);
 
     // update UI
     sprintf(str, "txt_temp.txt=\"%.1f\"\xff\xff\xff", temp);
@@ -214,7 +218,7 @@ void control_lcd()
     TJC.print(str);
   }
 
-  // 当串口缓冲区大于等于6时
+  // 当串口缓冲区大于等于7时
   while (TJC.available() >= FRAME_LENGTH)
   {
     unsigned char ubuffer[FRAME_LENGTH];
@@ -223,13 +227,16 @@ void control_lcd()
     // 当获取的数据是包头(0x55)时
     if (frame_header == 0x55)
     {
-      // 从串口缓冲区读取6字节
+      // 从串口缓冲区读取7字节
       TJC.readBytes(ubuffer, FRAME_LENGTH);
-      if (ubuffer[3] == 0xff && ubuffer[4] == 0xff && ubuffer[5] == 0xff)
+      if (ubuffer[4] == 0xff && ubuffer[5] == 0xff && ubuffer[6] == 0xff)
       {
-        sprintf(str, "msg.txt=\"button %d is %s\"\xff\xff\xff", ubuffer[1], ubuffer[2] ? "on" : "off");
+        int a = ubuffer[2];
+        int b = ubuffer[3];
+        int param = (b << 8) + a;
+        sprintf(str, "msg.txt=\"object=0x%X, param=%d\"\xff\xff\xff", ubuffer[1], param);
         TJC.print(str);
-        decode_operations(ubuffer[1], ubuffer[2]);
+        decode_operations(ubuffer[1], param);
       }
     }
     else
@@ -240,41 +247,47 @@ void control_lcd()
 }
 
 // 串口数据格式：
-// 串口数据帧长度：6字节
+// 串口数据帧长度：7字节
 // 帧头      lcd_obj_id   lcd_obj_parameter    帧尾
-// 0x55      1字节        1字节                0xffffff
+// 0x55      1字节        2字节                0xffffff
 // Main
-// 上位机代码  printh 55 10 01 ff ff ff  含义：start按钮打开
-// 上位机代码  printh 55 11 01 ff ff ff  含义：stop按钮打开
+// 上位机代码  printh 55 10 01 00 ff ff ff  含义：start按钮打开
+// 上位机代码  printh 55 11 01 00 ff ff ff  含义：stop按钮打开
 // Debug
-// 上位机代码  printh 55 00 01 ff ff ff  含义：heater按钮打开
-// 上位机代码  printh 55 00 00 ff ff ff  含义：heater按钮关闭
-// 上位机代码  printh 55 04 01 ff ff ff  含义：fan按钮打开
-// 上位机代码  printh 55 04 00 ff ff ff  含义：fan按钮关闭
+// 上位机代码  printh 55 00 01 00 ff ff ff  含义：heater按钮打开
+// 上位机代码  printh 55 00 00 00 ff ff ff  含义：heater按钮关闭
+// 上位机代码  printh 55 04 01 00 ff ff ff  含义：fan按钮打开
+// 上位机代码  printh 55 04 00 00 ff ff ff  含义：fan按钮关闭
 // debug_extruder
-// 上位机代码  printh 55 20 01 ff ff ff  含义：extruder按钮打开
-// 上位机代码  printh 55 20 00 ff ff ff  含义：extruder按钮关闭
-// 上位机代码  printh 55 21 01 ff ff ff  含义：direction按钮打开
-// 上位机代码  printh 55 21 00 ff ff ff  含义：direction按钮关闭
-// 上位机代码  printh 55 22 01 ff ff ff  含义：滑块弹起时的val
+// 上位机代码  printh 55 20 01 00 ff ff ff  含义：extruder按钮打开
+// 上位机代码  printh 55 20 00 00 ff ff ff  含义：extruder按钮关闭
+// 上位机代码  printh 55 21 01 00 ff ff ff  含义：direction按钮打开
+// 上位机代码  printh 55 21 00 00 ff ff ff  含义：direction按钮关闭
+// 上位机代码  printh 55 22 xx xx ff ff ff  含义：滑块弹起时的val
+// debug_puller
+// 上位机代码  printh 55 23 01 00 ff ff ff  含义：puller按钮打开
+// 上位机代码  printh 55 23 00 00 ff ff ff  含义：puller按钮关闭
+// 上位机代码  printh 55 24 01 00 ff ff ff  含义：direction按钮打开
+// 上位机代码  printh 55 24 00 00 ff ff ff  含义：direction按钮关闭
+// 上位机代码  printh 55 25 xx xx ff ff ff  含义：滑块弹起时的val
+// debug_winder
+// 上位机代码  printh 55 26 01 00 ff ff ff  含义：winder按钮打开
+// 上位机代码  printh 55 26 00 00 ff ff ff  含义：winder按钮关闭
+// 上位机代码  printh 55 27 01 00 ff ff ff  含义：direction按钮打开
+// 上位机代码  printh 55 27 00 00 ff ff ff  含义：direction按钮关闭
+// 上位机代码  printh 55 28 xx xx ff ff ff  含义：滑块弹起时的val
+// debug_stepper4
+// 上位机代码  printh 55 29 01 00 ff ff ff  含义：stepper4按钮打开
+// 上位机代码  printh 55 29 00 00 ff ff ff  含义：stepper4按钮关闭
+// 上位机代码  printh 55 30 01 00 ff ff ff  含义：direction按钮打开
+// 上位机代码  printh 55 30 00 00 ff ff ff  含义：direction按钮关闭
+// 上位机代码  printh 55 31 xx xx ff ff ff  含义：滑块弹起时的val
 
-void decode_operations(unsigned char lcd_obj_id, unsigned char lcd_obj_parameter)
+void decode_operations(unsigned char lcd_obj_id, int lcd_obj_parameter)
 {
   if (lcd_obj_id == 0x0)
   {
     heater_toggle = lcd_obj_parameter ? 1 : 0;
-  }
-  if (lcd_obj_id == 0x1)
-  {
-    extruder_toggle = lcd_obj_parameter ? 1 : 0;
-  }
-  if (lcd_obj_id == 0x2)
-  {
-    puller_toggle = lcd_obj_parameter ? 1 : 0;
-  }
-  if (lcd_obj_id == 0x3)
-  {
-    winder_toggle = lcd_obj_parameter ? 1 : 0;
   }
   if (lcd_obj_id == 0x4)
   {
@@ -296,47 +309,91 @@ void decode_operations(unsigned char lcd_obj_id, unsigned char lcd_obj_parameter
     winder_toggle = 0;
     fan_toggle = 0;
   }
+  // Extruder
   if (lcd_obj_id == 0x20)
   {
     extruder_toggle = lcd_obj_parameter ? 1 : 0;
   }
   if (lcd_obj_id == 0x21)
   {
-    direction1 = lcd_obj_parameter ? 1 : 0;
+    direction_extruder = lcd_obj_parameter ? 1 : 0;
   }
   if (lcd_obj_id == 0x22)
   {
-    speed1 = (int)lcd_obj_parameter;
+    speed_extruder = lcd_obj_parameter;
+  }
+  // Puller
+  if (lcd_obj_id == 0x23)
+  {
+    puller_toggle = lcd_obj_parameter ? 1 : 0;
+  }
+  if (lcd_obj_id == 0x24)
+  {
+    direction_puller = lcd_obj_parameter ? 1 : 0;
+  }
+  if (lcd_obj_id == 0x25)
+  {
+    speed_puller = lcd_obj_parameter;
+  }
+  // Winder
+  if (lcd_obj_id == 0x26)
+  {
+    winder_toggle = lcd_obj_parameter ? 1 : 0;
+  }
+  if (lcd_obj_id == 0x27)
+  {
+    direction_winder = lcd_obj_parameter ? 1 : 0;
+  }
+  if (lcd_obj_id == 0x28)
+  {
+    speed_winder = lcd_obj_parameter;
+  }
+  // Stepper4
+  if (lcd_obj_id == 0x29)
+  {
+    stepper4_toggle = lcd_obj_parameter ? 1 : 0;
+  }
+  if (lcd_obj_id == 0x30)
+  {
+    direction_stepper4 = lcd_obj_parameter ? 1 : 0;
+  }
+  if (lcd_obj_id == 0x31)
+  {
+    speed_stepper4 = lcd_obj_parameter;
   }
 }
 
 void control_steppers()
 {
-  stepperOne.changeSpeed(speed1);
-  stepperTwo.changeSpeed(speed2);
-  stepperThree.changeSpeed(speed3);
-  stepperFour.changeSpeed(speed4);
-  stepperOne.changeDirection(direction1);
-  stepperTwo.changeDirection(direction2);
-  stepperThree.changeDirection(direction3);
-  stepperFour.changeDirection(direction4);
+  extruder.changeSpeed(speed_extruder);
+  puller.changeSpeed(speed_puller);
+  winder.changeSpeed(speed_winder);
+  stepper4.changeSpeed(speed_stepper4);
+
+  extruder.changeDirection(direction_extruder);
+  puller.changeDirection(direction_puller);
+  winder.changeDirection(direction_winder);
+  stepper4.changeDirection(direction_stepper4);
 
   if (extruder_toggle)
   {
-    stepperOne.control();
+    extruder.control();
   }
 
   if (puller_toggle)
   {
-    stepperThree.control();
+    puller.control();
   }
 
   if (winder_toggle)
   {
-    stepperFour.control();
+    winder.control();
   }
 
-  stepperTwo.control();
+  if (stepper4_toggle)
+  {
+    stepper4.control();
+  }
 
   // This updates the Shift Register Values in each loop
   digitalWrite(SHIFT_REGISTER_LATCHPIN, LOW);
