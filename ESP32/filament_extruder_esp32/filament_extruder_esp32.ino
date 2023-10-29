@@ -11,7 +11,7 @@
 #define FRAME_LENGTH 7
 
 // wiring ESP32 and thermistor
-#define THERMISTOR_PIN 32
+#define THERMISTOR_PIN 36
 
 int duration;
 unsigned long nowtime;
@@ -40,23 +40,26 @@ bool direction_stepper4 = 0;
 thermistor therm1(THERMISTOR_PIN, 4);
 
 // wiring ESP32 and 74HC595
-#define SHIFT_REGISTER_DATAPIN 19
-#define SHIFT_REGISTER_LATCHPIN 18
-#define SHIFT_REGISTER_CLOCKPIN 5
+// SER (Serial Input) = Data pin
+// RCLK (Register Clock) = Latch pin
+// SRCLK (Shift Register Clock) = Clock pin
+#define SHIFT_REGISTER_DATAPIN 26
+#define SHIFT_REGISTER_LATCHPIN 25
+#define SHIFT_REGISTER_CLOCKPIN 33
 
 // wiring 74HC595 and four A4988
-#define EXTRUDER_PUL 0
-#define EXTRUDER_DIR 1
-#define PULLER_PUL 4
-#define PULLER_DIR 5
-#define WINDER_PUL 6
-#define WINDER_DIR 7
-#define STEPPER4_PUL 2
-#define STEPPER4_DIR 3
+#define EXTRUDER_PUL 7
+#define EXTRUDER_DIR 6
+#define PULLER_PUL 5
+#define PULLER_DIR 4
+#define WINDER_PUL 3
+#define WINDER_DIR 2
+#define STEPPER4_PUL 1
+#define STEPPER4_DIR 0
 
 // wiring ESP32 and SSR
-#define HEATER_PIN 26
-#define FAN_PIN 27
+#define HEATER_PIN 0
+#define FAN_PIN 13
 
 // Variable that stores what is sent to the 74HC595 Shift Register
 byte motorOutput;
