@@ -11,7 +11,7 @@
 #define FRAME_LENGTH 7
 
 // wiring ESP32 and thermistor
-#define THERMISTOR_PIN 36
+#define THERMISTOR1_PIN 4
 
 int duration;
 unsigned long nowtime;
@@ -37,7 +37,7 @@ bool direction_stepper4 = 0;
 
 // Thermistor model reference
 // https://github.com/miguel5612/ThermistorLibrary/blob/master/src/Configuration.h
-thermistor therm1(THERMISTOR_PIN, 4);
+thermistor therm1(THERMISTOR1_PIN, 1);
 
 // wiring ESP32 and 74HC595
 // SER (Serial Input) = Data pin
@@ -189,12 +189,12 @@ void control_lcd()
     nowtime = millis(); // 获取当前已经运行的时间
 
     // read temperature from thermistor
-    int analogValue = analogRead(THERMISTOR_PIN);
-    // Serial.printf("ADC analog value = %d\n", analogValue);
+    int t1a = analogRead(THERMISTOR1_PIN);
+    Serial.printf("therm1 analog value = %d\n", t1a);
 
     double temp = therm1.analog2temp();
-    // Serial.print("Temperature: ");
-    // Serial.println((String)temp);
+    Serial.print("therm1 Temperature: ");
+    Serial.println((String)temp);
 
     // update UI
     sprintf(str, "txt_temp.txt=\"%.1f\"\xff\xff\xff", temp);
